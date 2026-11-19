@@ -1,0 +1,13 @@
+{
+  "case": "dual_seat_contention",
+  "note": "甲乙两席同时重试同一批；用于证明后交须记批量脏写争用且不落双份",
+  "request": {
+    "batch_key": "B-CONTEND-001",
+    "source": "物流源",
+    "rows": [
+      {"source_clock": "2026-11-19T11:00:00", "ingest_clock": "2026-11-19T11:03:00"},
+      {"source_clock": "2026-11-19T11:01:00", "ingest_clock": "2026-11-19T11:04:00"},
+      {"source_clock": "2026-11-19T11:02:00", "ingest_clock": "2026-11-19T11:05:00"}
+    ]
+  }
+}

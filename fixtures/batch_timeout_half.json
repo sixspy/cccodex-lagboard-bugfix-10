@@ -1,0 +1,15 @@
+{
+  "case": "timeout_half_batch",
+  "note": "批采 4 行，写到第 2 行后注入超时；用于证明超时会留下半批",
+  "timeout_after": 2,
+  "request": {
+    "batch_key": "B-TIMEOUT-001",
+    "source": "订单源",
+    "rows": [
+      {"source_clock": "2026-11-19T09:00:00", "ingest_clock": "2026-11-19T09:05:00"},
+      {"source_clock": "2026-11-19T09:01:00", "ingest_clock": "2026-11-19T09:06:00"},
+      {"source_clock": "2026-11-19T09:02:00", "ingest_clock": "2026-11-19T09:07:00"},
+      {"source_clock": "2026-11-19T09:03:00", "ingest_clock": "2026-11-19T09:08:00"}
+    ]
+  }
+}

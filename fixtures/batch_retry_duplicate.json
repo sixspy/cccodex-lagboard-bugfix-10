@@ -1,0 +1,13 @@
+{
+  "case": "retry_duplicate",
+  "note": "同一批次键首次成功后原样重试；用于证明重试会写出双份到达",
+  "request": {
+    "batch_key": "B-RETRY-001",
+    "source": "支付源",
+    "rows": [
+      {"source_clock": "2026-11-19T10:00:00", "ingest_clock": "2026-11-19T10:04:00"},
+      {"source_clock": "2026-11-19T10:01:00", "ingest_clock": "2026-11-19T10:05:00"},
+      {"source_clock": "2026-11-19T10:02:00", "ingest_clock": "2026-11-19T10:06:00"}
+    ]
+  }
+}

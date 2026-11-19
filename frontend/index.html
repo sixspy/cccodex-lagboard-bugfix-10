@@ -60,6 +60,8 @@ createApp({
     const username=ref('admin'), password=ref('123456'), err=ref(''), tab=ref(0), actionErr=ref('');
     const sources=ref([]), arrivals=ref([]), catchups=ref([]);
     const form=ref({source:'订单源', source_clock:'2026-11-16T10:00:00', ingest_clock:'2026-11-16T10:40:00'});
+    const batch=ref({batch_key:'B-'+Date.now(), source:'订单源', rows_text:'2026-11-19T09:00:00,2026-11-19T09:05:00\n2026-11-19T09:01:00,2026-11-19T09:06:00'});
+    const batchMsg=ref(''), batchItems=ref([]), queueItems=ref([]), contentions=ref([]);
     const nav=['到达登记','滞后分级','补齐恢复'];
     const frozen=computed(()=>sources.value.filter(s=>s.output_mode==='冻结').length);
     const degraded=computed(()=>sources.value.filter(s=>s.output_mode==='降级只读').length);
@@ -88,6 +90,12 @@ createApp({
       arrivals.value=Array.isArray(a.items)?a.items:[];
       const c=await loadJson('/api/catchups'); if(c===null) return;
       catchups.value=Array.isArray(c.items)?c.items:[];
+      const b=await loadJson('/api/batches'); if(b===null) return;
+      batchItems.value=Array.isArray(b.items)?b.items:[];
+      const q=await loadJson('/api/catchup_queue'); if(q===null) return;
+      queueItems.value=Array.isArray(q.items)?q.items:[];
+      const k=await loadJson('/api/batch_contentions'); if(k===null) return;
+      contentions.value=Array.isArray(k.items)?k.items:[];
       if(sources.value.length && !form.value.source) form.value.source=sources.value[0].name;
     }
     async function recordArrival(){
@@ -97,8 +105,24 @@ createApp({
       await refresh();
     }
     async function doCatchup(name){await fetch('/api/catchup/'+encodeURIComponent(name),{method:'POST',headers:auth()});await refresh();}
+    function parseRows(text){
+      return (text||'').split(/\n+/).map(l=>l.trim()).filter(Boolean).map(l=>{
+        const [s,i]=l.split(',').map(x=>(x||'').trim());
+        return {source_clock:s, ingest_clock:i};
+      }).filter(r=>r.source_clock&&r.ingest_clock);
+    }
+    async function submitBatch(){
+      batchMsg.value='';
+      const rows=parseRows(batch.value.rows_text);
+      if(!rows.length){ batchMsg.value='批次没有有效行'; return; }
+      const r=await fetch('/api/batches',{method:'POST',headers:auth(),body:JSON.stringify({batch_key:batch.value.batch_key,source:batch.value.source,rows})});
+      const j=await r.json().catch(()=>({}));
+      if(r.ok){ batchMsg.value=`批次 ${j.batch_key} 已入账 ${j.accepted} 行（乙路径幂等）`; batch.value.batch_key='B-'+Date.now(); }
+      else { batchMsg.value=(j.detail||'批次失败'); }
+      await refresh();
+    }
     onMounted(()=>{if(token.value)refresh();});
-    return {token,user,username,password,err,tab,nav,sources,arrivals,catchups,form,actionErr,frozen,degraded,modeClass,login,logout,recordArrival,doCatchup};
+    return {token,user,username,password,err,tab,nav,sources,arrivals,catchups,form,actionErr,frozen,degraded,modeClass,login,logout,recordArrival,doCatchup,batch,batchMsg,batchItems,queueItems,contentions,submitBatch};
   },
   template:`
   <div v-if="!token" class="login">
@@ -151,6 +175,36 @@ createApp({
           <td>{{s.name}}</td><td>{{s.sla_minutes}}</td><td>{{s.output_mode}}</td>
           <td><button class="ghost" @click="doCatchup(s.name)">补齐恢复</button></td>
         </tr></tbody></table>
+
+        <div style="border-top:1px dashed var(--line);margin-top:16px;padding-top:14px">
+          <h3 style="margin:0 0 6px">时限台 · 调度区 · 批量采集</h3>
+          <p style="color:#64748b;font-size:12px;margin:0 0 10px">
+            乙路径：批次幂等键条件插入。整批单事务；超时整批回退不留半批；重复批次键拒绝第二次并保留首批正式行；双席同时重试先占脏写锁。
+          </p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div><label>批次幂等键</label><input v-model="batch.batch_key"/></div>
+            <div><label>源</label><select v-model="batch.source"><option v-for="s in sources" :value="s.name">{{s.name}}</option></select></div>
+          </div>
+          <label>整批行（每行 源时钟,摄入时钟）</label>
+          <textarea v-model="batch.rows_text" rows="4" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font-family:monospace"></textarea>
+          <button class="primary" @click="submitBatch">提交整批（超时整批回退）</button>
+          <div class="err">{{batchMsg}}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <div>
+              <h3>补采席队列</h3>
+              <table><thead><tr><th>批次键</th><th>源</th><th>状态</th></tr></thead>
+              <tbody><tr v-for="q in queueItems" :key="'q'+q.id"><td>{{q.batch_key}}</td><td>{{q.source}}</td><td>{{q.status}}</td></tr></tbody></table>
+            </div>
+            <div>
+              <h3>批量脏写争用</h3>
+              <table><thead><tr><th>批次键</th><th>席</th><th>说明</th></tr></thead>
+              <tbody><tr v-for="k in contentions" :key="'k'+k.id"><td>{{k.batch_key}}</td><td>{{k.seat}}</td><td>{{k.detail}}</td></tr></tbody></table>
+            </div>
+          </div>
+          <h3 style="margin-top:12px">批次台账</h3>
+          <table><thead><tr><th>批次键</th><th>源</th><th>席</th><th>状态</th><th>行数</th></tr></thead>
+          <tbody><tr v-for="b in batchItems" :key="'b'+b.id"><td>{{b.batch_key}}</td><td>{{b.source}}</td><td>{{b.seat}}</td><td>{{b.status}}</td><td>{{b.row_count}}</td></tr></tbody></table>
+        </div>
       </div>
       <div class="card" v-show="tab===2">
         <h3>补齐记录</h3>
